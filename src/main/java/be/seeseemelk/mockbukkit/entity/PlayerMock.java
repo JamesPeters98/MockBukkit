@@ -15,7 +15,8 @@ import be.seeseemelk.mockbukkit.map.MapViewMock;
 import be.seeseemelk.mockbukkit.sound.AudioExperience;
 import be.seeseemelk.mockbukkit.sound.SoundReceiver;
 import be.seeseemelk.mockbukkit.statistic.StatisticsMock;
-import be.seeseemelk.mockbukkit.world.EnumInteractionResult;
+import be.seeseemelk.mockbukkit.world.InteractionResult;
+import be.seeseemelk.mockbukkit.world.ItemInteractionResult;
 import com.destroystokyo.paper.ClientOption;
 import com.destroystokyo.paper.Title;
 import com.destroystokyo.paper.profile.PlayerProfile;
@@ -118,7 +119,6 @@ import org.bukkit.inventory.InventoryView;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.PlayerInventory;
 import org.bukkit.inventory.meta.PotionMeta;
-import org.bukkit.inventory.meta.components.FoodComponent;
 import org.bukkit.map.MapView;
 import org.bukkit.plugin.Plugin;
 import org.bukkit.plugin.messaging.StandardMessenger;
@@ -184,7 +184,6 @@ public class PlayerMock extends HumanEntityMock implements Player, SoundReceiver
 	private int expTotal = 0;
 	private float exp = 0;
 	private int expCooldown = 0;
-	private boolean sneaking = false;
 	private boolean sprinting = false;
 	private boolean allowFlight = false;
 	private boolean flying = false;
@@ -607,26 +606,23 @@ public class PlayerMock extends HumanEntityMock implements Player, SoundReceiver
 	/**
 	 * This method use's the players item from inventory to interact with a {@link BlockFace} at a {@link Location}
 	 *
-	 * @param location {@link Location} to use {@link ItemStack} on
+	 * @param location    {@link Location} to use {@link ItemStack} on
 	 * @param clickedFace {@link BlockFace} to click
-	 * @param hand Hand to use the item from
+	 * @param hand        Hand to use the item from
 	 * @return {@link PlayerInteractEvent} that was fired
 	 */
-	public @NotNull PlayerInteractEvent simulateUseItemOn(@NotNull Location location, @NotNull BlockFace clickedFace, @Nullable EquipmentSlot hand) {
+	public @NotNull PlayerInteractEvent simulateUseItemOn(@NotNull Location location, @NotNull BlockFace clickedFace, @Nullable EquipmentSlot hand)
+	{
 		Preconditions.checkNotNull(location, "Location cannot be null");
 		Preconditions.checkArgument(hand == EquipmentSlot.HAND || hand == EquipmentSlot.OFF_HAND, "Must be HAND or OFF_HAND");
 
 		ItemStack itemInHand = hand == EquipmentSlot.HAND ? getItemInHand() : getInventory().getItemInOffHand();
 
 		boolean cancelled = false;
-		BlockMock block;
-		if (location.getBlock() instanceof BlockMock blockMock) {
-			block = blockMock;
-		} else {
-			block = new BlockMock(location);
-		}
+		BlockMock block = BlockMock.mock(location.getBlock());
 
-		if (getGameMode() == GameMode.SPECTATOR) {
+		if (getGameMode() == GameMode.SPECTATOR)
+		{
 			cancelled = !(block.getState() instanceof Container);
 		}
 
@@ -636,64 +632,80 @@ public class PlayerMock extends HumanEntityMock implements Player, SoundReceiver
 //		}
 
 		ItemStack eventItemStack = itemInHand;
-		if (eventItemStack.getType() == Material.AIR || eventItemStack.getAmount() == 0) {
+		if (eventItemStack.getType() == Material.AIR || eventItemStack.getAmount() == 0)
+		{
 			eventItemStack = null;
 		}
 
 		PlayerInteractEvent event = new PlayerInteractEvent(this, Action.RIGHT_CLICK_BLOCK, eventItemStack, block, clickedFace, hand);
-		if (cancelled) {
+		if (cancelled)
+		{
 			event.setUseInteractedBlock(Event.Result.DENY);
 		}
 		Bukkit.getServer().getPluginManager().callEvent(event);
 
 		boolean interactResult = event.useItemInHand() == Event.Result.DENY;
 
-		if (event.useInteractedBlock() == Event.Result.DENY) {
+		if (event.useInteractedBlock() == Event.Result.DENY)
+		{
 			return event;
-		} else if (getGameMode() == GameMode.SPECTATOR) {
-			if (block.getState() instanceof ContainerMock containerMock) {
+		}
+		else if (getGameMode() == GameMode.SPECTATOR)
+		{
+			if (block.getState() instanceof ContainerMock containerMock)
+			{
 				openInventory(containerMock.getInventory());
 			}
-		} else {
+		}
+		else
+		{
 			boolean isItemInHand = !getItemInHand().isEmpty() || !getInventory().getItemInOffHand().isEmpty();
 			boolean shouldCancelUse = isSneaking() && isItemInHand;
-			ItemStack itemStackCopy = itemInHand.clone();
+			InteractionResult interactionResult;
 
-			if (!shouldCancelUse) {
-				if (block.getState() instanceof BlockStateMock blockStateMock) {
-					EnumInteractionResult result = blockStateMock.simulateUse(this, hand);
+			if (!shouldCancelUse)
+			{
+				if (!(block.getState() instanceof BlockStateMock blockStateMock))
+				{
+					throw new UnimplementedOperationException();
+				}
+
+				ItemInteractionResult itemInteractionResult = blockStateMock.simulateUseItemOn(blockStateMock, location, ItemStackMock.mock(getItemInHand()), this, hand, clickedFace);
+				block.setState(blockStateMock);
+				block.setBlockData(blockStateMock.getBlockData());
+
+				if (itemInteractionResult.consumesAction())
+				{
+					// TODO implement CriterionTriggers
+					return event;
+				}
+
+				if (itemInteractionResult == ItemInteractionResult.PASS_TO_DEFAULT_BLOCK_INTERACTION && hand == EquipmentSlot.HAND) {
+					interactionResult = blockStateMock.simulateUseWithoutItem(blockStateMock, location, this, clickedFace);
 					block.setState(blockStateMock);
 					block.setBlockData(blockStateMock.getBlockData());
-
-					if (result.consumesAction()) {
-						// TODO implement CriterionTriggers
+					if (interactionResult.consumesAction()) {
 						return event;
 					}
-				} else {
-					throw new UnimplementedOperationException();
 				}
 			}
 
-			if (!itemStackCopy.isEmpty() && !interactResult) {
-				EnumInteractionResult itemInteractionResult;
+			if (!itemInHand.isEmpty() && !interactResult)
+			{
+				ItemStackMock itemStackMock = ItemStackMock.mock(itemInHand);
+				int count = itemStackMock.getAmount();
 
-				ItemStackMock itemStackMock;
-				if (itemStackCopy instanceof ItemStackMock) {
-					itemStackMock = (ItemStackMock) itemStackCopy;
-				} else {
-					itemStackMock = new ItemStackMock(itemStackCopy);
+				InteractionResult result = itemStackMock.simulateUseItemOn(this, location, hand);
+
+				if (getGameMode() == GameMode.CREATIVE)
+				{
+					itemInHand.setAmount(count);
 				}
 
-				if (getGameMode() == GameMode.CREATIVE) {
-					int count = itemStackMock.getAmount();
-					itemInteractionResult = itemStackMock.simulateUse(this, location, hand);
-					itemStackCopy.setAmount(count);
-				} else {
-					itemInteractionResult = itemStackMock.simulateUse(this, location, hand);
-				}
-
-				if (itemInteractionResult.consumesAction()) {
+				if (result.consumesAction())
+				{
 					// TODO advancements
+					return event;
 				}
 			}
 		}
@@ -862,20 +874,6 @@ public class PlayerMock extends HumanEntityMock implements Player, SoundReceiver
 	{
 		// TODO Auto-generated method stub
 		throw new UnimplementedOperationException();
-	}
-
-	@Override
-	public double getEyeHeight()
-	{
-		return getEyeHeight(false);
-	}
-
-	@Override
-	public double getEyeHeight(boolean ignorePose)
-	{
-		if (isSneaking() && !ignorePose)
-			return 1.54D;
-		return 1.62D;
 	}
 
 	@Override
@@ -1252,18 +1250,6 @@ public class PlayerMock extends HumanEntityMock implements Player, SoundReceiver
 		throw new UnimplementedOperationException();
 	}
 
-	@Override
-	public boolean isSneaking()
-	{
-		return sneaking;
-	}
-
-	@Override
-	public void setSneaking(boolean sneaking)
-	{
-		this.sneaking = sneaking;
-	}
-
 	/**
 	 * Simulates sneaking.
 	 *
@@ -1276,7 +1262,7 @@ public class PlayerMock extends HumanEntityMock implements Player, SoundReceiver
 		Bukkit.getPluginManager().callEvent(event);
 		if (!event.isCancelled())
 		{
-			this.sneaking = event.isSneaking();
+			setSneaking(event.isSneaking());
 		}
 		return event;
 	}

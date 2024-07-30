@@ -39,6 +39,8 @@ import org.bukkit.attribute.Attribute;
 import org.bukkit.block.Block;
 import org.bukkit.block.BlockFace;
 import org.bukkit.block.BlockState;
+import org.bukkit.block.data.type.Switch;
+import org.bukkit.block.data.type.TrapDoor;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.EntityType;
 import org.bukkit.entity.Player;
@@ -829,6 +831,60 @@ class PlayerMockTest
 	{
 		player.setSneaking(true);
 		assertTrue(player.isSneaking());
+	}
+
+	@Test
+	void getHeight_WhileStanding()
+	{
+		assertEquals(1.8D, player.getHeight());
+	}
+
+	@Test
+	void getHeight_WhileSneaking()
+	{
+		player.setSneaking(true);
+		assertEquals(1.5D, player.getHeight());
+	}
+
+	@Test
+	void getHeight_WhileSleeping()
+	{
+		player.setSleeping(true);
+		assertEquals(0.2D, player.getHeight());
+	}
+
+	@Test
+	void getHeight_WhileSwimming()
+	{
+		player.setSwimming(true);
+		assertEquals(0.6D, player.getHeight());
+	}
+
+	@Test
+	void getEyeHeight_WhileStanding()
+	{
+		assertEquals(1.53D, player.getEyeHeight());
+	}
+
+	@Test
+	void getEyeHeight_WhileSneaking()
+	{
+		player.setSneaking(true);
+		assertEquals(1.275D, player.getEyeHeight());
+	}
+
+	@Test
+	void getEyeHeight_WhileSleeping()
+	{
+		player.setSleeping(true);
+		assertEquals(0.17D, player.getEyeHeight());
+	}
+
+	@Test
+	void getEyeHeight_WhileSwimming()
+	{
+		player.setSwimming(true);
+		assertEquals(0.51D, player.getEyeHeight());
 	}
 
 	@Test
@@ -2469,7 +2525,8 @@ class PlayerMockTest
 	}
 
 	@Test
-	void testPlayerInteractEvent_air() {
+	void testPlayerInteractEvent_air()
+	{
 		player.setGameMode(GameMode.SURVIVAL);
 		player.setItemInHand(null);
 
@@ -2482,7 +2539,8 @@ class PlayerMockTest
 	}
 
 	@Test
-	void testPlayerInteractEvent_openChest() {
+	void testPlayerInteractEvent_openChest()
+	{
 		player.setGameMode(GameMode.SURVIVAL);
 		player.setItemInHand(null);
 
@@ -2496,7 +2554,8 @@ class PlayerMockTest
 	}
 
 	@Test
-	void testPlayerInteractEvent_spectatorOpenChest() {
+	void testPlayerInteractEvent_spectatorOpenChest()
+	{
 		player.setGameMode(GameMode.SPECTATOR);
 		player.setItemInHand(null);
 
@@ -2510,7 +2569,8 @@ class PlayerMockTest
 	}
 
 	@Test
-	void testPlayerInteractEvent_spectatorFailInteract() {
+	void testPlayerInteractEvent_spectatorFailInteract()
+	{
 		player.setGameMode(GameMode.SPECTATOR);
 		player.setItemInHand(null);
 
@@ -2524,7 +2584,8 @@ class PlayerMockTest
 	}
 
 	@Test
-	void testPlayerInteractEvent_sneakingWithNoItem() {
+	void testPlayerInteractEvent_sneakingWithNoItem()
+	{
 		player.setGameMode(GameMode.SURVIVAL);
 		player.setSneaking(true);
 		player.setItemInHand(null);
@@ -2539,7 +2600,8 @@ class PlayerMockTest
 	}
 
 	@Test
-	void testPlayerInteractEvent_sneakingWithItem() {
+	void testPlayerInteractEvent_sneakingWithItem()
+	{
 		player.setGameMode(GameMode.SURVIVAL);
 		player.setSneaking(true);
 		player.setItemInHand(ItemStackMock.of(Material.CHEST));
@@ -2548,16 +2610,21 @@ class PlayerMockTest
 		block.setType(Material.CHEST);
 
 		// We don't care if the item isn't implemented here since we're just checking if the Chest inventory doesn't open
-		try {
+		try
+		{
 			player.simulateUseItemOn(block.getLocation(), BlockFace.SELF, EquipmentSlot.HAND);
-		} catch (UnimplementedOperationException ignored) {}
+		}
+		catch (UnimplementedOperationException ignored)
+		{
+		}
 
 		server.getPluginManager().assertEventFired(PlayerInteractEvent.class);
 		player.assertInventoryView(InventoryType.CRAFTING);
 	}
 
 	@Test
-	void testPlayerInteractEvent_cancelled() {
+	void testPlayerInteractEvent_cancelled()
+	{
 		TestPlugin plugin = MockBukkit.load(TestPlugin.class);
 		Bukkit.getPluginManager().registerEvents(new Listener()
 		{
@@ -2577,6 +2644,75 @@ class PlayerMockTest
 		assertNotNull(event);
 		server.getPluginManager().assertEventFired(PlayerInteractEvent.class);
 		player.assertInventoryView(InventoryType.CRAFTING);
+	}
+
+	@Test
+	void testPlayerInteractEvent_lever()
+	{
+		player.setGameMode(GameMode.SURVIVAL);
+		player.setItemInHand(null);
+
+		BlockMock block = player.getWorld().getBlockAt(0, 0, 0);
+		block.setType(Material.LEVER);
+		Switch originalLeverState = (Switch) block.getBlockData();
+
+		PlayerInteractEvent event = player.simulateUseItemOn(block.getLocation(), BlockFace.SELF, EquipmentSlot.HAND);
+
+		assertNotNull(event);
+		server.getPluginManager().assertEventFired(PlayerInteractEvent.class);
+
+		player.assertSoundHeard(Sound.BLOCK_LEVER_CLICK);
+
+		Switch newLeverState = (Switch) block.getBlockData();
+		assertNotEquals(originalLeverState.isPowered(), newLeverState.isPowered());
+	}
+
+	@Test
+	void testPlayerInteractEvent_lever_cancelled()
+	{
+		TestPlugin plugin = MockBukkit.load(TestPlugin.class);
+		Bukkit.getPluginManager().registerEvents(new Listener()
+		{
+			@EventHandler
+			public void onPlayerInteract(@NotNull PlayerInteractEvent event)
+			{
+				event.setCancelled(true);
+			}
+		}, plugin);
+
+		player.setGameMode(GameMode.SURVIVAL);
+		player.setItemInHand(null);
+
+		BlockMock block = player.getWorld().getBlockAt(0, 0, 0);
+		block.setType(Material.LEVER);
+		Switch originalLeverState = (Switch) block.getBlockData();
+
+		PlayerInteractEvent event = player.simulateUseItemOn(block.getLocation(), BlockFace.SELF, EquipmentSlot.HAND);
+
+		assertNotNull(event);
+		server.getPluginManager().assertEventFired(PlayerInteractEvent.class);
+
+		Switch newLeverState = (Switch) block.getBlockData();
+		assertEquals(originalLeverState.isPowered(), newLeverState.isPowered());
+	}
+
+	@Test
+	void testPlayerInteract_trapDoor()
+	{
+		player.setGameMode(GameMode.SURVIVAL);
+		player.setItemInHand(null);
+
+		BlockMock block = player.getWorld().getBlockAt(0, 0, 0);
+		block.setType(Material.OAK_TRAPDOOR);
+		TrapDoor originalTrapDoorState = (TrapDoor) block.getBlockData();
+
+		PlayerInteractEvent event = player.simulateUseItemOn(block.getLocation(), BlockFace.SELF, EquipmentSlot.HAND);
+
+		assertNotNull(event);
+		server.getPluginManager().assertEventFired(PlayerInteractEvent.class);
+
+		TrapDoor newTrapDoorState = (TrapDoor) block.getBlockData();
+		assertNotEquals(originalTrapDoorState.isOpen(), newTrapDoorState.isOpen());
 	}
 
 }
